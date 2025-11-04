@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -24,5 +23,174 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
+
+    <ImageButton
+        android:id="@+id/buttonFlipCamera"
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:layout_marginTop="24dp"
+        android:layout_marginEnd="24dp"
+        android:background="@drawable/rounded_button_bg"
+        android:contentDescription="Kamerayı Değiştir"
+        android:scaleType="centerInside"
+        android:src="@drawable/baseline_flip_camera_android_24"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:tint="@color/white" />
+
+    <LinearLayout
+        android:id="@+id/linearLayoutChipGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#80000000"
+        android:orientation="vertical"
+        android:padding="8dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:text="Ana Mod:"
+            android:textColor="@android:color/white"
+            android:textSize="12sp" />
+
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/chipGroupMode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:singleLine="true"
+            app:singleSelection="true">
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipFace"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Yüz Tespiti (Gelişmiş)" />
+
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipHand"
+                style="@style/Widget.MaterialComponents.Chip.Choice"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="El Tespiti (Filtreli)" />
+
+        </com.google.android.material.chip.ChipGroup>
+
+        <TextView
+            android:id="@+id/textViewFaceFilters"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:text="Yüz Filtreleri (Çoklu Seçim):"
+            android:textColor="@android:color/white"
+            android:textSize="12sp" />
+
+        <HorizontalScrollView
+            android:id="@+id/scrollViewFaceFilters"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipGroupFaceFilters"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:singleLine="true"
+                app:singleSelection="false">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipFilterEyes"
+                    style="@style/Widget.MaterialComponents.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Gözler" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipFilterEyebrows"
+                    style="@style/Widget.MaterialComponents.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Kaşlar" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipFilterMouth"
+                    style="@style/Widget.MaterialComponents.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Dudaklar(Tümü)" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipFilterInnerMouth"
+                    style="@style/Widget.MaterialComponents.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Ağız İçi(Diş/Dil)" />
+
+
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipFilterFaceOval"
+                    style="@style/Widget.MaterialComponents.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Yüz Çevresi" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipFilterNose"
+                    style="@style/Widget.MaterialComponents.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Burun" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipFilterCheeks"
+                    style="@style/Widget.MaterialComponents.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Yanaklar" />
+
+            </com.google.android.material.chip.ChipGroup>
+        </HorizontalScrollView>
+
+        <TextView
+            android:id="@+id/textViewHandFilters"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:text="El Filtreleri (Çoklu Seçim):"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:visibility="gone" /> <HorizontalScrollView
+        android:id="@+id/scrollViewHandFilters"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone"> <com.google.android.material.chip.ChipGroup
+        android:id="@+id/chipGroupHandFilters"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        app:singleLine="true"
+        app:singleSelection="false">
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chipFilterPalm"
+            style="@style/Widget.MaterialComponents.Chip.Filter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Avuç" />
+
+        <com.google.android.material.chip.Chip
+            android:id="@+id/chipFilterFingertips"
+            style="@style/Widget.MaterialComponents.Chip.Filter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Parmak Uçları" />
+
+    </com.google.android.material.chip.ChipGroup>
+    </HorizontalScrollView>
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>
