@@ -4,8 +4,7 @@ This project is an Android application that performs real-time, on-device Face a
 
 The application processes a live camera feed and draws user-selectable, dynamic filters onto a custom `OverlayView`. It can also detect real-time states, such as "Mouth Open," by calculating the aspect ratios of facial landmarks.
 
-![MediaPipe Face Map](mediapipe_face_landmark_fullsize.jpg)
-
+<img width="2299" height="2299" alt="mediapipe_face_landmark_fullsize" src="https://github.com/user-attachments/assets/bf4d5d09-d60f-4162-b6b9-bc139199943d" />
 
 ## Core Features
 
