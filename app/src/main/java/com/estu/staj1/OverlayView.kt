@@ -11,18 +11,14 @@ import android.view.View
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
+import java.util.LinkedList
+import kotlin.jvm.Volatile
 import kotlin.math.max
 import kotlin.math.min
 
-/**
- * GÜNCELLENDİ (Rotasyon Düzeltmesi):
- * - Telefon dikey (Portrait) moddayken 90 derece dönük olan koordinatları düzeltir.
- * - Ön kamera (Front) için X-ekseni aynalaması yapar.
- */
+
 class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs) {
 
-    // --- DOĞRU İNDEKSLER (468 model için) ---
-    // (Bu kısım aynı, dokunmayın)
     private val FACE_OVAL_INDICES = listOf(
         10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379,
         378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127,
@@ -64,7 +60,12 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
     private val PALM_INDICES =listOf(
         0,1,2,5,9,13,17
     )
-
+    private val LEFT_IRIS_INDICES = listOf(
+        474, 475, 476, 477
+    )
+    private val RIGHT_IRIS_INDICES = listOf(
+        469, 470, 471, 472
+    )
 
     private var handResults: HandLandmarkerResult? = null
     private var faceResults: FaceLandmarkerResult? = null
@@ -89,7 +90,16 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
     }
     // Hesaplanan oranı saklamak için
     private var mouthAspectRatio: Float = 0f
-    // --- YENİ EKLENEN KOD SONU ---
+    @Volatile var isMouthOpen: Boolean=false
+    private var irisColorString: String = "..."
+    private val ratioHistory = LinkedList<Float>()
+    private val SMOOTHING_WINDOW_SIZE = 5
+
+    fun setIrisColor(color: String){
+        irisColorString = color
+    }
+
+
 
     // Boya stilleri (Rengi Siyan ve Sarı olarak değiştirmiştik)
     private val handBoxPaint = Paint().apply {
@@ -264,8 +274,7 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
                 val landmarks = toNormalizedList(faceItem)
                 if (landmarks.isEmpty()) continue
 
-                // --- AĞIZ ORANI HESAPLAMASI (DÜZELTİLDİ) ---
-                var isMouthOpen = false
+                // --- AĞIZ ORANI HESAPLAMASI  ---
                 try {
                     // Değişken isimleri daha anlaşılır hale getirildi
                     val topLip = getXY(landmarks[0]) // Üst dudak merkezi (DIŞ)
@@ -277,15 +286,17 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
                     val horizontalDist = kotlin.math.abs(leftCorner.first - rightCorner.first)
 
                     if (horizontalDist > 0) {
-                        val ratio = verticalDist / horizontalDist
-                        mouthAspectRatio = ratio // Debug yazısı için oranı kaydet
-
-                        // HATA DÜZELTMESİ: Eşik değeri 0.35f'den 0.20f'ye düşürüldü.
-                        // Sol üstteki "Oran:" yazısına bakarak bu eşiği kendinize göre ayarlayın.
-                        if (ratio > 0.60f) {
-                            isMouthOpen = true
-                        } else {
-                            isMouthOpen = false
+                        val rawRatio = verticalDist/ horizontalDist
+                        ratioHistory.add(rawRatio)
+                        if(ratioHistory.size>SMOOTHING_WINDOW_SIZE){
+                            ratioHistory.poll()
+                        }
+                        val smoothedRatio = ratioHistory.average().toFloat()
+                        mouthAspectRatio=smoothedRatio
+                        if(smoothedRatio>0.6f){
+                            isMouthOpen=true
+                        }else{
+                            isMouthOpen=false
                         }
                     }
 
@@ -296,7 +307,7 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
 
 
                 try {
-                    // --- ÇİZİM BLOKLARI (KUTU HATASI DÜZELTİLDİ) ---
+                    // --- ÇİZİM BLOKLARI  ---
 
                     if (faceFilters.contains("Gözler")) {
                         val leftEye = mapLandmarks(landmarks, LEFT_EYE_INDICES) //
@@ -310,6 +321,20 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
                             val r2 = getBoundingBoxForLandmarks(rightEye, offsetX, offsetY)
                             canvas.drawRect(r2, faceBoxPaint)
                             canvas.drawText("Sağ Göz", r2.left, r2.top - 10f, faceTextPaint)
+                        }
+                    }
+                    if(faceFilters.contains("İris")){
+                        val leftIris = mapLandmarks(landmarks, LEFT_IRIS_INDICES) //
+                        val rightIris = mapLandmarks(landmarks, RIGHT_IRIS_INDICES) //
+                        if (leftIris.isNotEmpty()) {
+                            val r = getBoundingBoxForLandmarks(leftIris, offsetX, offsetY)
+                            canvas.drawRect(r, faceBoxPaint)
+                            canvas.drawText("Sol İris:$irisColorString", r.left, r.top - 10f, faceTextPaint)
+                        }
+                        if (rightIris.isNotEmpty()) {
+                            val r2 = getBoundingBoxForLandmarks(rightIris, offsetX, offsetY)
+                            canvas.drawRect(r2, faceBoxPaint)
+                            canvas.drawText("Sağ İris:$irisColorString", r2.left, r2.top - 10f, faceTextPaint)
                         }
                     }
 
@@ -328,20 +353,36 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
                         }
                     }
 
-                    if (faceFilters.contains("Ağız")) {
-                        val mouth = mapLandmarks(landmarks, LIPS_INDICES) //
-                        if (mouth.isNotEmpty()) {
-                            val r = getBoundingBoxForLandmarks(mouth, offsetX, offsetY)
-                            canvas.drawRect(r, faceBoxPaint)
-                            val text = if (isMouthOpen) "Ağız (AÇIK)" else "Ağız" // Metin güncellendi
-                            canvas.drawText(text, r.left, r.top - 10f, faceTextPaint)
+                    val isMouthFilterOn= faceFilters.contains("Ağız İçi(Dil/Diş)")
+
+                    if (isMouthFilterOn ) {
+                        if (isMouthOpen) {
+                            val innerMouth = mapLandmarks(landmarks, LIPS_INNER_INDICES)
+                            if (innerMouth.isNotEmpty()){
+                                val r= getBoundingBoxForLandmarks(innerMouth, offsetX, offsetY)
+                                val verticalShift=r.height()*0.20f
+                                r.offset(0f,verticalShift)
+                                canvas.drawRect(r, faceBoxPaint)
+                                val text = "Dil"
+                                canvas.drawText(text,r.left,r.top-10f,faceTextPaint)
+
+                            }
+
+                        }else{
+                            val mouth = mapLandmarks(landmarks, LIPS_INDICES)
+                            if(mouth.isNotEmpty()){
+                                val r= getBoundingBoxForLandmarks(mouth, offsetX, offsetY)
+                                canvas.drawRect(r, faceBoxPaint)
+                                val text ="Ağız(KAPALI)"
+                                canvas.drawText(text,r.left,r.top-10f,faceTextPaint)
+                            }
+
                         }
                     }
 
-                    // --- KOPYALA-YAPIŞTIR HATASI BURADAYDI (DÜZELTİLDİ) ---
+
                     if (faceFilters.contains("Yüz Çevresi")) {
-                        // HATA: Burası LIPS_INDICES idi.
-                        // DÜZELTME: FACE_OVAL_INDICES olarak değiştirildi.
+
                         val oval = mapLandmarks(landmarks, FACE_OVAL_INDICES)
                         if (oval.isNotEmpty()) {
                             val r = getBoundingBoxForLandmarks(oval, offsetX, offsetY)
@@ -361,17 +402,6 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
                         }
                     }
 
-                    // MainActivity'de "Ağız içi" yerine "Ağız İçi" (büyük İ) kullandık,
-                    // burayı da onunla eşleşecek şekilde güncelledim.
-                    if (faceFilters.contains("Ağız İçi")) {
-                        val innerMouth = mapLandmarks(landmarks, LIPS_INNER_INDICES) //
-                        if (innerMouth.isNotEmpty()) {
-                            val r = getBoundingBoxForLandmarks(innerMouth, offsetX, offsetY)
-                            canvas.drawRect(r, faceBoxPaint)
-                            val text = if (isMouthOpen) "Ağız İçi (AÇIK)" else "Ağız İçi"
-                            canvas.drawText(text, r.left, r.top - 10f, faceTextPaint)
-                        }
-                    }
 
                     if (faceFilters.contains("Yanaklar")) {
                         val leftCheek = mapLandmarks(landmarks, LEFT_CHEEK_INDICES) //

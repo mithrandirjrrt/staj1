@@ -1,8 +1,19 @@
 package com.estu.staj1
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Color
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
 import android.view.View
 import android.widget.Toast
@@ -15,6 +26,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.estu.staj1.databinding.ActivityMainBinding
+import com.google.android.material.snackbar.Snackbar
 import com.google.mediapipe.tasks.core.ErrorListener
 import com.google.mediapipe.framework.image.BitmapImageBuilder
 import com.google.mediapipe.framework.image.MPImage
@@ -24,6 +36,7 @@ import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarker
 import com.google.mediapipe.tasks.vision.facelandmarker.FaceLandmarkerResult
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
+import java.io.IOException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -40,6 +53,11 @@ class MainActivity : AppCompatActivity() {
     private var cameraProvider: ProcessCameraProvider? = null
     private var preview: Preview? = null
     private var imageAnalyzer: ImageAnalysis? = null
+    private var mouthOpenStartTime: Long = 0L
+    private var isCaptureInProgress: Boolean = false
+    private var latestFaceResult: FaceLandmarkerResult? = null
+    @Volatile private var detectedIrisColor: String="..."
+    private var latestBitmap:Bitmap?=null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,27 +107,27 @@ class MainActivity : AppCompatActivity() {
                 currentDetector = DETECTOR_FACE
                 binding.textViewFaceFilters.visibility = View.VISIBLE
                 binding.scrollViewFaceFilters.visibility = View.VISIBLE
+                binding.textViewHandFilters.visibility = View.GONE
+                binding.scrollViewHandFilters.visibility = View.GONE
             } else if (checkedId == R.id.chipHand) {
                 currentDetector = DETECTOR_HAND
                 binding.textViewFaceFilters.visibility = View.GONE
                 binding.scrollViewFaceFilters.visibility = View.GONE
+                binding.textViewHandFilters.visibility = View.VISIBLE
+                binding.scrollViewHandFilters.visibility = View.VISIBLE
             }
-        }
+        } //
 
         val filterChipIds = mapOf(
             R.id.chipFilterEyes to "Gözler",
+            R.id.chipFilterIris to "İris",
             R.id.chipFilterEyebrows to "Kaşlar",
-            R.id.chipFilterMouth to "Ağız",
+            R.id.chipFilterMouth to "Ağız İçi(Dil/Diş)", //
             R.id.chipFilterFaceOval to "Yüz Çevresi",
             R.id.chipFilterNose  to "Burun",
             R.id.chipFilterCheeks to "Yanaklar",
-            R.id.chipFilterInnerMouth to "Ağız İçi"
-        )
-        val handFilterChipIds = mapOf(
-            R.id.chipFilterPalm to "Avuç",
-            R.id.chipFilterFingertips to "Parmak Uçları"
-        )
 
+            ) //
         filterChipIds.forEach { (chipId, filterName) ->
             findViewById<com.google.android.material.chip.Chip>(chipId)
                 ?.setOnCheckedChangeListener { _, isChecked ->
@@ -117,14 +135,30 @@ class MainActivity : AppCompatActivity() {
                     else binding.overlayView.faceFilters.remove(filterName)
                     binding.overlayView.invalidate()
                 }
+        } //
+
+        val handFilterChipIds = mapOf(
+            R.id.chipFilterPalm to "Avuç",
+            R.id.chipFilterFingertips to "Parmak Uçları"
+        ) //
+
+
+        // DÜZELTİLMİŞ Hali (Fazladan parantezler kaldırıldı):
+        handFilterChipIds.forEach { (chipId, filterName) ->
+            findViewById<com.google.android.material.chip.Chip>(chipId)
+                ?.setOnCheckedChangeListener { _, isChecked ->
+                    if (isChecked) binding.overlayView.handFilters.add(filterName)
+                    else binding.overlayView.handFilters.remove(filterName)
+                    binding.overlayView.invalidate()
+                }
         }
+        // --- DÜZELTME SONU ---
 
         binding.textViewFaceFilters.visibility = View.VISIBLE
         binding.scrollViewFaceFilters.visibility = View.VISIBLE
         binding.textViewHandFilters.visibility = View.GONE
         binding.scrollViewHandFilters.visibility = View.GONE
-
-
+        //
     }
 
     private fun setupFaceLandmarker() {
@@ -139,6 +173,10 @@ class MainActivity : AppCompatActivity() {
                 .setRunningMode(RunningMode.LIVE_STREAM)
                 .setNumFaces(1)
                 .setResultListener { result: FaceLandmarkerResult, image: MPImage ->
+                    latestFaceResult = result
+                    cameraExecutor.execute {
+                        analyzeIrisColor(image,result)
+                    }
                     runOnUiThread {
                         binding.overlayView.setFaceResults(
                             faceLandmarkerResult = result,
@@ -146,6 +184,7 @@ class MainActivity : AppCompatActivity() {
                             imageWidth = image.width,
                             runningMode = RunningMode.LIVE_STREAM
                         )
+                        binding.overlayView.setIrisColor(detectedIrisColor)
                     }
                 }
                 .setErrorListener { error ->
@@ -238,6 +277,7 @@ class MainActivity : AppCompatActivity() {
             imageProxy.close()
             return
         }
+        this.latestBitmap=bitmap
 
         // Bitmap'ten MPImage oluştur (Bu import zaten vardı)
         val mpImage = BitmapImageBuilder(bitmap).build()
@@ -247,8 +287,155 @@ class MainActivity : AppCompatActivity() {
             DETECTOR_FACE -> faceLandmarker?.detectAsync(mpImage, timestamp)
             DETECTOR_HAND -> handLandmarker?.detectAsync(mpImage, timestamp)
         }
+        if(currentDetector==DETECTOR_FACE){
+            checkMouthOpenTimer()
+        }
 
         imageProxy.close()
+    }
+    // İmza GÜNCELLENDİ (Parametreler kaldırıldı)
+    private fun checkMouthOpenTimer() {
+        val isMouthCurrentlyOpen = binding.overlayView.isMouthOpen
+
+        if(isMouthCurrentlyOpen && !isCaptureInProgress){
+            if(mouthOpenStartTime==0L){
+                mouthOpenStartTime=System.currentTimeMillis()
+                Log.d(TAG,"Ağız açıldı,2 saniye sonra kayıt alınacak..")
+
+            }else{
+                val elapsedTime = System.currentTimeMillis() - mouthOpenStartTime
+                if(elapsedTime>2000){
+                    Log.d(TAG,"2 saniye geçti,Fotoğraf çekiliyor!")
+                    isCaptureInProgress = true
+                    mouthOpenStartTime = 0L
+
+                    // --- YENİ EKRAN GÖRÜNTÜSÜ ALMA MANTIĞI ---
+                    // View'lara (Arayüz) erişmek için Ana İş Parçacığına geçiş yap
+                    runOnUiThread {
+                        // 1. PreviewView'dan (Arka Katman) bitmap'i al.
+                        // Bu bitmap zaten doğru döndürülmüş ve ölçeklenmiştir.
+                        val viewFinderBitmap = binding.viewFinder.bitmap
+
+                        if (viewFinderBitmap == null) {
+                            Log.e(TAG, "viewFinderBitmap null, fotoğraf çekilemedi.")
+                            isCaptureInProgress = false // Kilidi serbest bırak
+                            return@runOnUiThread
+                        }
+
+                        // 2. Üzerine çizim yapabilmek için kopyasını oluştur
+                        val finalBitmap = viewFinderBitmap.copy(Bitmap.Config.ARGB_8888, true)
+
+                        // 3. Bu kopyanın üzerine bir Canvas (Tuval) aç
+                        val canvas = Canvas(finalBitmap)
+
+                        // 4. OverlayView'a (Ön Katman) kendini bu tuvale çizmesini söyle
+                        binding.overlayView.draw(canvas)
+
+                        // 5. Artık "ekrandakinin aynısı" olan finalBitmap'i
+                        // (basitleştirilmiş) saveBitmap fonksiyonuna gönder.
+                        saveBitmap(finalBitmap)
+                    }
+                    // --- YENİ MANTIK SONU ---
+                }
+            }
+        }else if(!isMouthCurrentlyOpen){
+            if  (mouthOpenStartTime != 0L){
+                Log.d(TAG,"Ağız kapandı,sayaç sıfırlandı.")
+            }
+            mouthOpenStartTime = 0L
+            isCaptureInProgress = false
+        }
+    }
+
+    // İmza GÜNCELLENDİ (rotationDegrees eklendi)
+    // İmza GÜNCELLENDİ (Tek parametreye döndü)
+    private fun saveBitmap(bitmap: Bitmap?) {
+        if(bitmap==null) return
+
+        val fileName = "MouthOpen_${System.currentTimeMillis()}.jpg"
+
+        // Dosya kaydetme işlemini yine de arka planda yap
+        cameraExecutor.execute {
+
+            // --- TÜM ROTASYON VE ÇİZİM KODLARI SİLİNDİ ---
+            // (Artık gerek yok, bitmap zaten hazır)
+
+            // --- KAYDETME KISMI (ContentValues) ---
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES+"/Staj1App")
+                }
+            }
+            val resolver = contentResolver
+            var uri: Uri? = null
+
+            try {
+                uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                if (uri == null) {
+                    throw IOException("Fotoğraf kaydedilemedi.")
+                }
+                resolver.openOutputStream(uri)?.use { stream ->
+                    // Gelen hazır (birleştirilmiş) bitmap'i kaydet
+                    if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)) {
+                        throw IOException("Bitmap kaydedilemedi.")
+                    }
+                }
+                runOnUiThread {
+                    Snackbar.make(
+                        binding.root, "Fotoğraf kaydedildi:$fileName", Snackbar.LENGTH_SHORT
+                    ).show()
+                }
+            }catch (e: Exception){
+                Log.e(TAG,"Fotoğraf kaydedilirken hata oluştu: ${e.message}")
+                uri?.let { resolver.delete(it, null, null) }
+            }
+        }
+    }
+    private fun classifyColor(color: Int): String{
+        val red = Color.red(color)
+        val green = Color.green(color)
+        val blue = Color.blue(color)
+
+        if(blue>green && blue>red&&blue>80){
+            return "Mavi"
+        }
+        if(green>blue&&green>red&&green>80){
+            return "Yeşil"
+        }
+        if (red>blue&&green>blue&&(kotlin.math.abs(red-green)<40)&&(red+green>100)){
+            if(kotlin.math.abs(red-green)<20&&red>80) return "Kahverengi"
+            if(green>red)return "Ela"
+            return "Kahverengi"
+        }
+        return "Kahverengi/Koyu"
+
+    }
+    private fun analyzeIrisColor(image: MPImage,result: FaceLandmarkerResult) {
+        if (!binding.overlayView.faceFilters.contains("İris") || result.faceLandmarks().isEmpty()) {
+            detectedIrisColor = "..."
+            return
+        }
+        try {
+            val bitmap = this.latestBitmap ?: return
+            val landmarks = result.faceLandmarks()[0]
+            val leftIrisCenter = landmarks[476]
+            var lx = leftIrisCenter.x()
+            val ly = leftIrisCenter.y()
+            if (cameraSelector == CameraSelector.DEFAULT_FRONT_CAMERA) {
+                lx = 1.0f - lx
+            }
+            val pixelX = (lx * bitmap.width).toInt()
+            val pixelY = (ly * bitmap.height).toInt()
+            if (pixelX >= 0 && pixelX < bitmap.width && pixelY >= 0 && pixelY < bitmap.height) {
+                val color = bitmap.getPixel(pixelX, pixelY)
+                detectedIrisColor = classifyColor(color)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Iris renk analizinde hata oluştu: ${e.message}")
+            detectedIrisColor = "Hata"
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -281,7 +468,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "AIVisionApp"
         private const val REQUEST_CODE_PERMISSIONS = 10
-        private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA)
+        private val REQUIRED_PERMISSIONS = arrayOf(Manifest.permission.CAMERA,)
         private const val DETECTOR_FACE = 0
         private const val DETECTOR_HAND = 1
     }
