@@ -427,8 +427,6 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
         }
     }
 
-    // --- Reflection (Senin kodun) - DEĞİŞİKLİK YOK ---
-    // (Bu kısımlar aynı)
     private fun toNormalizedList(obj: Any?): List<Any> {
         if (obj == null) return emptyList()
         if (obj is Iterable<*>) {
@@ -492,11 +490,7 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
 
         return 0f to 0f
     }
-    // --- Reflection Sonu ---
 
-
-    // GÜNCELLENDİ: Asıl sihrin yapıldığı yer.
-    // Koordinatları rotasyona ve aynalamaya göre hesaplar.
     private fun getBoundingBoxForLandmarks(
         landmarks: List<Any>,
         offsetX: Float,
@@ -544,5 +538,35 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
 
         if (minX > maxX || minY > maxY) return RectF(0f, 0f, 0f, 0f)
         return RectF(minX, minY, maxX, maxY)
+    }
+
+    fun getTongueRect(): RectF? {
+
+        val results = faceResults ?: return null
+        val isMouthFilterOn = faceFilters.contains("Ağız İçi(Dil/Diş)")
+        if (!isMouthFilterOn || !isMouthOpen) return null
+
+        try {
+            val rawFaceLandmarksContainer = safeCall(results, "faceLandmarks") ?: return null
+            val faceItems = rawFaceLandmarksContainer as? Iterable<*> ?: return null
+            val firstFace = faceItems.firstOrNull() ?: return null
+
+            val landmarks = toNormalizedList(firstFace)
+            val innerMouth = mapLandmarks(landmarks, LIPS_INNER_INDICES)
+
+            if (innerMouth.isNotEmpty()) {
+                val (offsetX, offsetY) = calculateOffset()
+                val r = getBoundingBoxForLandmarks(innerMouth, offsetX, offsetY)
+
+
+                val verticalShift = r.height() * 0.20f
+                r.offset(0f, verticalShift)
+
+                return r
+            }
+        } catch (e: Exception) {
+            return null
+        }
+        return null
     }
 }

@@ -278,6 +278,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         this.latestBitmap=bitmap
+        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
 
         // Bitmap'ten MPImage oluştur (Bu import zaten vardı)
         val mpImage = BitmapImageBuilder(bitmap).build()
@@ -288,108 +289,144 @@ class MainActivity : AppCompatActivity() {
             DETECTOR_HAND -> handLandmarker?.detectAsync(mpImage, timestamp)
         }
         if(currentDetector==DETECTOR_FACE){
-            checkMouthOpenTimer()
+            checkMouthOpenTimer(rotationDegrees)
         }
 
         imageProxy.close()
     }
     // İmza GÜNCELLENDİ (Parametreler kaldırıldı)
-    private fun checkMouthOpenTimer() {
+    // DÜZELTME: Parametre olarak (rotationDegrees: Int) eklendi
+    // GÜNCELLENDİ: OverlayView'dan kutuyu alıp işleyen versiyon
+    private fun checkMouthOpenTimer(rotationDegrees: Int) {
         val isMouthCurrentlyOpen = binding.overlayView.isMouthOpen
 
-        if(isMouthCurrentlyOpen && !isCaptureInProgress){
-            if(mouthOpenStartTime==0L){
-                mouthOpenStartTime=System.currentTimeMillis()
-                Log.d(TAG,"Ağız açıldı,2 saniye sonra kayıt alınacak..")
+        if (isMouthCurrentlyOpen && !isCaptureInProgress) {
+            if (mouthOpenStartTime == 0L) {
+                mouthOpenStartTime = System.currentTimeMillis()
+                Log.d(TAG, "Ağız açıldı, 2 saniye sonra kayıt alınacak..")
 
-            }else{
+            } else {
                 val elapsedTime = System.currentTimeMillis() - mouthOpenStartTime
-                if(elapsedTime>2000){
-                    Log.d(TAG,"2 saniye geçti,Fotoğraf çekiliyor!")
+                if (elapsedTime > 2000) {
+                    Log.d(TAG, "2 saniye geçti, Fotoğraf çekiliyor!")
                     isCaptureInProgress = true
                     mouthOpenStartTime = 0L
 
-                    // --- YENİ EKRAN GÖRÜNTÜSÜ ALMA MANTIĞI ---
-                    // View'lara (Arayüz) erişmek için Ana İş Parçacığına geçiş yap
+                    // --- KRİTİK DEĞİŞİKLİK BURADA ---
+                    // UI thread'e geçip OverlayView'dan o anki kutuyu istiyoruz
                     runOnUiThread {
-                        // 1. PreviewView'dan (Arka Katman) bitmap'i al.
-                        // Bu bitmap zaten doğru döndürülmüş ve ölçeklenmiştir.
-                        val viewFinderBitmap = binding.viewFinder.bitmap
+                        val tongueRect = binding.overlayView.getTongueRect()
 
-                        if (viewFinderBitmap == null) {
-                            Log.e(TAG, "viewFinderBitmap null, fotoğraf çekilemedi.")
-                            isCaptureInProgress = false // Kilidi serbest bırak
-                            return@runOnUiThread
+                        // Eğer kutu yoksa (örn: ağız kapandıysa) kaydetme
+                        if (tongueRect != null) {
+                            // Ekran boyutlarını da gönderiyoruz ki oranlayabilelim
+                            val viewWidth = binding.overlayView.width
+                            val viewHeight = binding.overlayView.height
+
+                            saveBitmap(latestBitmap, rotationDegrees, tongueRect, viewWidth, viewHeight)
+                        } else {
+                            isCaptureInProgress = false // Kilit aç
                         }
-
-                        // 2. Üzerine çizim yapabilmek için kopyasını oluştur
-                        val finalBitmap = viewFinderBitmap.copy(Bitmap.Config.ARGB_8888, true)
-
-                        // 3. Bu kopyanın üzerine bir Canvas (Tuval) aç
-                        val canvas = Canvas(finalBitmap)
-
-                        // 4. OverlayView'a (Ön Katman) kendini bu tuvale çizmesini söyle
-                        binding.overlayView.draw(canvas)
-
-                        // 5. Artık "ekrandakinin aynısı" olan finalBitmap'i
-                        // (basitleştirilmiş) saveBitmap fonksiyonuna gönder.
-                        saveBitmap(finalBitmap)
                     }
-                    // --- YENİ MANTIK SONU ---
+                    // -------------------------------
                 }
             }
-        }else if(!isMouthCurrentlyOpen){
-            if  (mouthOpenStartTime != 0L){
-                Log.d(TAG,"Ağız kapandı,sayaç sıfırlandı.")
+        } else if (!isMouthCurrentlyOpen) {
+            if (mouthOpenStartTime != 0L) {
+                Log.d(TAG, "Ağız kapandı, sayaç sıfırlandı.")
             }
             mouthOpenStartTime = 0L
             isCaptureInProgress = false
         }
     }
 
-    // İmza GÜNCELLENDİ (rotationDegrees eklendi)
-    // İmza GÜNCELLENDİ (Tek parametreye döndü)
-    private fun saveBitmap(bitmap: Bitmap?) {
-        if(bitmap==null) return
+    // GÜNCELLENDİ: Koordinat hesaplamayan, sadece oranlayan versiyon
+    // GÜNCELLENDİ: Ekranda görünen kareyi baz alarak kırpan versiyon
+    private fun saveBitmap(bitmap: Bitmap?, rotationDegrees: Int, sourceRect: RectF, viewWidth: Int, viewHeight: Int) {
+        if (bitmap == null) return
 
-        val fileName = "MouthOpen_${System.currentTimeMillis()}.jpg"
+        val fileName = "TongueCrop_${System.currentTimeMillis()}.jpg"
 
-        // Dosya kaydetme işlemini yine de arka planda yap
         cameraExecutor.execute {
-
-            // --- TÜM ROTASYON VE ÇİZİM KODLARI SİLİNDİ ---
-            // (Artık gerek yok, bitmap zaten hazır)
-
-            // --- KAYDETME KISMI (ContentValues) ---
-            val contentValues = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES+"/Staj1App")
-                }
-            }
-            val resolver = contentResolver
-            var uri: Uri? = null
-
             try {
-                uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-                if (uri == null) {
-                    throw IOException("Fotoğraf kaydedilemedi.")
-                }
-                resolver.openOutputStream(uri)?.use { stream ->
-                    // Gelen hazır (birleştirilmiş) bitmap'i kaydet
-                    if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, stream)) {
-                        throw IOException("Bitmap kaydedilemedi.")
+                // 1. Resmi Döndür (Rotasyon düzeltmesi)
+                val matrix = Matrix()
+                matrix.postRotate(rotationDegrees.toFloat())
+                val rotatedBitmap = Bitmap.createBitmap(
+                    bitmap, 0, 0,
+                    bitmap.width, bitmap.height,
+                    matrix, true
+                )
+
+                // 2. Koordinatları Oranla (Scaling)
+                // Ekran koordinatlarını (örn: 1080x2400) fotoğraf koordinatlarına (örn: 3000x4000) çevir
+                val scaleX = rotatedBitmap.width.toFloat() / viewWidth.toFloat()
+                val scaleY = rotatedBitmap.height.toFloat() / viewHeight.toFloat()
+
+                // Ekranda gördüğünüz karenin fotoğraf üzerindeki karşılığı
+                var cropLeft = (sourceRect.left * scaleX).toInt()
+                var cropTop = (sourceRect.top * scaleY).toInt()
+                var cropRight = (sourceRect.right * scaleX).toInt()
+                var cropBottom = (sourceRect.bottom * scaleY).toInt()
+
+                // 3. PAY EKLEME (Padding)
+                val currentWidth = cropRight - cropLeft
+                val currentHeight = cropBottom - cropTop
+
+                // Kenarlara %10 pay ekle
+                val paddingX = (currentWidth * 0.10f).toInt()
+                val paddingY = (currentHeight * 0.10f).toInt()
+
+                cropLeft -= paddingX
+                cropRight += paddingX
+                cropTop -= paddingY
+
+                // Aşağı doğru uzatma (Dil ucu için ekstra pay) - Yüksekliğin %20'si kadar
+                val extendBottom = (currentHeight * 0.20f).toInt()
+                cropBottom += (paddingY + extendBottom)
+
+                // 4. Sınır Kontrolleri (Resmin dışına taşmamak için)
+                cropLeft = cropLeft.coerceAtLeast(0)
+                cropTop = cropTop.coerceAtLeast(0)
+                cropRight = cropRight.coerceAtMost(rotatedBitmap.width)
+                cropBottom = cropBottom.coerceAtMost(rotatedBitmap.height)
+
+                val finalWidth = cropRight - cropLeft
+                val finalHeight = cropBottom - cropTop
+
+                // 5. Kırpma ve Kaydetme
+                if (finalWidth > 0 && finalHeight > 0) {
+                    val croppedBitmap = Bitmap.createBitmap(
+                        rotatedBitmap,
+                        cropLeft,
+                        cropTop,
+                        finalWidth,
+                        finalHeight
+                    )
+
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Staj1App/TongueCrops")
+                        }
+                    }
+
+                    val resolver = contentResolver
+                    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+
+                    if (uri != null) {
+                        resolver.openOutputStream(uri)?.use { stream ->
+                            croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream)
+                        }
+                        runOnUiThread {
+                            Snackbar.make(binding.root, "Dil Yakalandı: $fileName", Snackbar.LENGTH_SHORT).show()
+                        }
                     }
                 }
-                runOnUiThread {
-                    Snackbar.make(
-                        binding.root, "Fotoğraf kaydedildi:$fileName", Snackbar.LENGTH_SHORT
-                    ).show()
-                }
-            }catch (e: Exception){
-                Log.e(TAG,"Fotoğraf kaydedilirken hata oluştu: ${e.message}")
-                uri?.let { resolver.delete(it, null, null) }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Kırpma hatası: ${e.message}")
             }
         }
     }

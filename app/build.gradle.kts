@@ -47,23 +47,23 @@ android {
 }
 
 dependencies {
-    // ✅ MediaPipe Vision paketleri
+    //  MediaPipe Vision paketleri
     implementation("com.google.mediapipe:tasks-vision:0.20230731")
 
-    // ✅ CameraX bileşenleri
+    //  CameraX bileşenleri
     val cameraxVersion = "1.3.1"
     implementation("androidx.camera:camera-core:$cameraxVersion")
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-view:$cameraxVersion")
 
-    // ✅ Temel Android kütüphaneleri
+    //  Temel Android kütüphaneleri
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.10.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
 
-    // ✅ Test kütüphaneleri
+    //  Test kütüphaneleri
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
