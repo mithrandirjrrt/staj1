@@ -66,7 +66,7 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
     private val RIGHT_IRIS_INDICES = listOf(
         469, 470, 471, 472
     )
-
+    private val TAG="OverlayView"
     private var handResults: HandLandmarkerResult? = null
     private var faceResults: FaceLandmarkerResult? = null
 
@@ -360,8 +360,10 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
                             val innerMouth = mapLandmarks(landmarks, LIPS_INNER_INDICES)
                             if (innerMouth.isNotEmpty()){
                                 val r= getBoundingBoxForLandmarks(innerMouth, offsetX, offsetY)
-                                val verticalShift=r.height()*0.20f
-                                r.offset(0f,verticalShift)
+                                val shiftAmount =r.height()*0.20f
+                                r.offset(0f,shiftAmount)
+                                val extendAmount=r.height()*0.50f
+                                r.bottom += extendAmount
                                 canvas.drawRect(r, faceBoxPaint)
                                 val text = "Dil"
                                 canvas.drawText(text,r.left,r.top-10f,faceTextPaint)
@@ -540,10 +542,12 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
         return RectF(minX, minY, maxX, maxY)
     }
 
-    fun getTongueRect(): RectF? {
+    // ... (OverlayView.kt dosyasında bu kısma gidin)
 
+    fun getTongueRect(): RectF? {
         val results = faceResults ?: return null
         val isMouthFilterOn = faceFilters.contains("Ağız İçi(Dil/Diş)")
+
         if (!isMouthFilterOn || !isMouthOpen) return null
 
         try {
@@ -558,13 +562,20 @@ class OverlayView(context: Context, attrs: AttributeSet?) : View(context, attrs)
                 val (offsetX, offsetY) = calculateOffset()
                 val r = getBoundingBoxForLandmarks(innerMouth, offsetX, offsetY)
 
+                // BURASI drawFaceBoxes İLE AYNI OLMALI
 
-                val verticalShift = r.height() * 0.20f
-                r.offset(0f, verticalShift)
+                // 1. %20 Aşağı Kaydır
+                val shiftAmount = r.height() * 0.20f
+                r.offset(0f, shiftAmount)
+
+
+                val extendAmount = r.height() * 0.50f
+                r.bottom += extendAmount
 
                 return r
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Ağız kutusu hesaplama hatası: ${e.message}") // Artık hata vermez
             return null
         }
         return null

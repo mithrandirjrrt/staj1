@@ -294,41 +294,63 @@ class MainActivity : AppCompatActivity() {
 
         imageProxy.close()
     }
-    // İmza GÜNCELLENDİ (Parametreler kaldırıldı)
-    // DÜZELTME: Parametre olarak (rotationDegrees: Int) eklendi
-    // GÜNCELLENDİ: OverlayView'dan kutuyu alıp işleyen versiyon
-    private fun checkMouthOpenTimer(rotationDegrees: Int) {
+    private fun checkMouthOpenTimer(rotationDegrees: Int) { // Parametre durabilir ama kullanmayacağız
         val isMouthCurrentlyOpen = binding.overlayView.isMouthOpen
 
         if (isMouthCurrentlyOpen && !isCaptureInProgress) {
             if (mouthOpenStartTime == 0L) {
                 mouthOpenStartTime = System.currentTimeMillis()
-                Log.d(TAG, "Ağız açıldı, 2 saniye sonra kayıt alınacak..")
+                Log.d(TAG, "Ağız açıldı, süre başladı..")
 
             } else {
                 val elapsedTime = System.currentTimeMillis() - mouthOpenStartTime
                 if (elapsedTime > 2000) {
-                    Log.d(TAG, "2 saniye geçti, Fotoğraf çekiliyor!")
+                    Log.d(TAG, "Süre doldu, Görüntü alınıyor...")
                     isCaptureInProgress = true
                     mouthOpenStartTime = 0L
 
-                    // --- KRİTİK DEĞİŞİKLİK BURADA ---
-                    // UI thread'e geçip OverlayView'dan o anki kutuyu istiyoruz
+                    // --- KESİN ÇÖZÜM: GÖRÜNÜMDEN BITMAP ALMA ---
                     runOnUiThread {
-                        val tongueRect = binding.overlayView.getTongueRect()
+                        // 1. Kutunun koordinatlarını al (OverlayView nerede çiziyorsa orası)
+                        val rect = binding.overlayView.getTongueRect()
 
-                        // Eğer kutu yoksa (örn: ağız kapandıysa) kaydetme
-                        if (tongueRect != null) {
-                            // Ekran boyutlarını da gönderiyoruz ki oranlayabilelim
-                            val viewWidth = binding.overlayView.width
-                            val viewHeight = binding.overlayView.height
+                        // 2. Ekrandaki görüntüyü al (PreviewView ne gösteriyorsa o)
+                        // Bu bitmap zaten dönmüş, ölçeklenmiş ve ekrana oturmuş haldedir.
+                        val screenBitmap = binding.viewFinder.bitmap
 
-                            saveBitmap(latestBitmap, rotationDegrees, tongueRect, viewWidth, viewHeight)
+                        if (rect != null && screenBitmap != null) {
+                            try {
+                                // 3. Koordinatları Güvenli Hale Getir (Ekran dışına taşmasın)
+                                val safeLeft = rect.left.toInt().coerceIn(0, screenBitmap.width)
+                                val safeTop = rect.top.toInt().coerceIn(0, screenBitmap.height)
+
+                                val safeWidth = rect.width().toInt().coerceAtMost(screenBitmap.width - safeLeft)
+                                val safeHeight = rect.height().toInt().coerceAtMost(screenBitmap.height - safeTop)
+
+                                // 4. Kesme İşlemi (Sadece kutu içi)
+                                if (safeWidth > 0 && safeHeight > 0) {
+                                    val croppedBitmap = Bitmap.createBitmap(
+                                        screenBitmap,
+                                        safeLeft,
+                                        safeTop,
+                                        safeWidth,
+                                        safeHeight
+                                    )
+
+                                    // 5. Kaydetmeye Gönder
+                                    saveBitmap(croppedBitmap)
+                                } else {
+                                    isCaptureInProgress = false // Hata olursa kilidi aç
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Kırpma hatası: ${e.message}")
+                                isCaptureInProgress = false
+                            }
                         } else {
-                            isCaptureInProgress = false // Kilit aç
+                            isCaptureInProgress = false
                         }
                     }
-                    // -------------------------------
+                    // -------------------------------------------
                 }
             }
         } else if (!isMouthCurrentlyOpen) {
@@ -340,93 +362,37 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // GÜNCELLENDİ: Koordinat hesaplamayan, sadece oranlayan versiyon
-    // GÜNCELLENDİ: Ekranda görünen kareyi baz alarak kırpan versiyon
-    private fun saveBitmap(bitmap: Bitmap?, rotationDegrees: Int, sourceRect: RectF, viewWidth: Int, viewHeight: Int) {
-        if (bitmap == null) return
-
+    private fun saveBitmap(finalBitmap: Bitmap) {
         val fileName = "TongueCrop_${System.currentTimeMillis()}.jpg"
 
         cameraExecutor.execute {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Staj1App/TongueCrops")
+                }
+            }
+
+            val resolver = contentResolver
+            var uri: Uri? = null
+
             try {
-                // 1. Resmi Döndür (Rotasyon düzeltmesi)
-                val matrix = Matrix()
-                matrix.postRotate(rotationDegrees.toFloat())
-                val rotatedBitmap = Bitmap.createBitmap(
-                    bitmap, 0, 0,
-                    bitmap.width, bitmap.height,
-                    matrix, true
-                )
-
-                // 2. Koordinatları Oranla (Scaling)
-                // Ekran koordinatlarını (örn: 1080x2400) fotoğraf koordinatlarına (örn: 3000x4000) çevir
-                val scaleX = rotatedBitmap.width.toFloat() / viewWidth.toFloat()
-                val scaleY = rotatedBitmap.height.toFloat() / viewHeight.toFloat()
-
-                // Ekranda gördüğünüz karenin fotoğraf üzerindeki karşılığı
-                var cropLeft = (sourceRect.left * scaleX).toInt()
-                var cropTop = (sourceRect.top * scaleY).toInt()
-                var cropRight = (sourceRect.right * scaleX).toInt()
-                var cropBottom = (sourceRect.bottom * scaleY).toInt()
-
-                // 3. PAY EKLEME (Padding)
-                val currentWidth = cropRight - cropLeft
-                val currentHeight = cropBottom - cropTop
-
-                // Kenarlara %10 pay ekle
-                val paddingX = (currentWidth * 0.10f).toInt()
-                val paddingY = (currentHeight * 0.10f).toInt()
-
-                cropLeft -= paddingX
-                cropRight += paddingX
-                cropTop -= paddingY
-
-                // Aşağı doğru uzatma (Dil ucu için ekstra pay) - Yüksekliğin %20'si kadar
-                val extendBottom = (currentHeight * 0.20f).toInt()
-                cropBottom += (paddingY + extendBottom)
-
-                // 4. Sınır Kontrolleri (Resmin dışına taşmamak için)
-                cropLeft = cropLeft.coerceAtLeast(0)
-                cropTop = cropTop.coerceAtLeast(0)
-                cropRight = cropRight.coerceAtMost(rotatedBitmap.width)
-                cropBottom = cropBottom.coerceAtMost(rotatedBitmap.height)
-
-                val finalWidth = cropRight - cropLeft
-                val finalHeight = cropBottom - cropTop
-
-                // 5. Kırpma ve Kaydetme
-                if (finalWidth > 0 && finalHeight > 0) {
-                    val croppedBitmap = Bitmap.createBitmap(
-                        rotatedBitmap,
-                        cropLeft,
-                        cropTop,
-                        finalWidth,
-                        finalHeight
-                    )
-
-                    val contentValues = ContentValues().apply {
-                        put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Staj1App/TongueCrops")
-                        }
+                uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { stream ->
+                        finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream)
                     }
-
-                    val resolver = contentResolver
-                    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
-
-                    if (uri != null) {
-                        resolver.openOutputStream(uri)?.use { stream ->
-                            croppedBitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream)
-                        }
-                        runOnUiThread {
-                            Snackbar.make(binding.root, "Dil Yakalandı: $fileName", Snackbar.LENGTH_SHORT).show()
-                        }
+                    // Başarılı mesajı
+                    runOnUiThread {
+                        Snackbar.make(binding.root, "Dil Yakalandı: $fileName", Snackbar.LENGTH_SHORT).show()
                     }
                 }
-
             } catch (e: Exception) {
-                Log.e(TAG, "Kırpma hatası: ${e.message}")
+                Log.e(TAG, "Kaydetme hatası: ${e.message}")
+            } finally {
+                // İşlem bitince bir sonraki çekim için kilidi aç
+                isCaptureInProgress = false
             }
         }
     }
